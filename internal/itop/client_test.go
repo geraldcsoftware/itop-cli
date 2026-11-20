@@ -2,10 +2,12 @@ package itop
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -121,5 +123,117 @@ func TestRedirectNeverFollowed(t *testing.T) {
 	var e *Error
 	if hit || !errors.As(err, &e) || e.Kind != ErrAPI {
 		t.Errorf("redirect followed or not reported: hit=%v err=%v", hit, err)
+	}
+}
+
+func TestWritesAreFixedPayloads(t *testing.T) {
+	var mu sync.Mutex
+	var sent []map[string]any
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		var req map[string]any
+		_ = json.Unmarshal([]byte(r.PostForm.Get("json_data")), &req)
+		op, _ := req["operation"].(string)
+		key, _ := req["key"].(string)
+		mu.Lock()
+		if op != "core/get" {
+			sent = append(sent, req)
+		}
+		mu.Unlock()
+		obj := func(class, id string) string {
+			return `{"code":0,"objects":{"` + class + `::` + id + `":{"class":"` + class + `","key":"` + id + `","fields":{"status":"new"}}}}`
+		}
+		switch {
+		case op == "core/create":
+			_, _ = w.Write([]byte(obj("WorkOrder", "99")))
+		case op == "core/update":
+			_, _ = w.Write([]byte(`{"code":0,"objects":{}}`))
+		case strings.HasPrefix(key, "SELECT Incident"):
+			_, _ = w.Write([]byte(obj("Incident", "7")))
+		case strings.HasPrefix(key, "SELECT Change"):
+			_, _ = w.Write([]byte(obj("NormalChange", "41")))
+		case strings.HasPrefix(key, "SELECT WorkOrder"):
+			_, _ = w.Write([]byte(obj("WorkOrder", "5")))
+		case strings.HasPrefix(key, "SELECT Ticket"):
+			_, _ = w.Write([]byte(obj("NormalChange", "41")))
+		default:
+			_, _ = w.Write([]byte(`{"code":0,"objects":null}`))
+		}
+	}))
+	defer srv.Close()
+	c := newTestClient(t, srv, "password", time.Second)
+	ctx := context.Background()
+	must := func(kind TargetKind, ref string) Target {
+		tg, err := c.ResolveTarget(ctx, kind, ref)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return tg
+	}
+	inc, chg, wo := must(TargetIncident, "I-000007"), must(TargetChange, "C-000041"), must(TargetWorkOrder, "5")
+	last := func() map[string]any {
+		mu.Lock()
+		defer mu.Unlock()
+		if len(sent) != 1 {
+			t.Fatalf("want exactly 1 write, got %d", len(sent))
+		}
+		r := sent[0]
+		sent = nil
+		return r
+	}
+	check := func(name string, got, want map[string]any) {
+		t.Helper()
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("%s payload = %v, want %v", name, got, want)
+		}
+	}
+
+	if err := c.SetDescription(ctx, chg, "<p>x</p>"); err != nil {
+		t.Fatal(err)
+	}
+	check("description", last(), map[string]any{"operation": "core/update", "comment": "itop-cli", "class": "NormalChange",
+		"key": "41", "output_fields": "id", "fields": map[string]any{"description": "<p>x</p>"}})
+
+	if err := c.SetDescription(ctx, wo, "<p>w</p>"); err != nil {
+		t.Fatal(err)
+	}
+	check("wo description", last(), map[string]any{"operation": "core/update", "comment": "itop-cli", "class": "WorkOrder",
+		"key": "5", "output_fields": "id", "fields": map[string]any{"description": "<p>w</p>"}})
+
+	if err := c.AppendPrivateLog(ctx, inc, "<p>n</p>"); err != nil {
+		t.Fatal(err)
+	}
+	check("log", last(), map[string]any{"operation": "core/update", "comment": "itop-cli", "class": "Incident",
+		"key": "7", "output_fields": "id",
+		"fields": map[string]any{"private_log": map[string]any{"add_item": map[string]any{"message": "<p>n</p>", "format": "html"}}}})
+
+	id, err := c.CreateWorkOrder(ctx, chg, WorkOrderInput{Name: "Step", DescriptionHTML: "<p>s</p>", TeamID: "3", AgentID: "4",
+		StartDate: "2026-11-21 08:00:00"})
+	if err != nil || id != "99" {
+		t.Fatalf("create: id=%q err=%v", id, err)
+	}
+	check("create", last(), map[string]any{"operation": "core/create", "comment": "itop-cli", "class": "WorkOrder",
+		"output_fields": "id", "fields": map[string]any{"ticket_id": "41", "name": "Step", "description": "<p>s</p>",
+			"team_id": "3", "agent_id": "4", "start_date": "2026-11-21 08:00:00"}})
+
+	var refused *RefusedError
+	if err := c.SetDescription(ctx, inc, "x"); !errors.As(err, &refused) {
+		t.Errorf("description on Incident: %v", err)
+	}
+	if err := c.AppendPrivateLog(ctx, wo, "x"); !errors.As(err, &refused) {
+		t.Errorf("log on WorkOrder: %v", err)
+	}
+	if _, err := c.CreateWorkOrder(ctx, inc, WorkOrderInput{Name: "n"}); !errors.As(err, &refused) {
+		t.Errorf("work order on Incident: %v", err)
+	}
+	for _, op := range []string{"core/delete", "core/apply_stimulus"} {
+		if _, err := c.post(ctx, op, nil); err == nil {
+			t.Errorf("%s was not rejected", op)
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(sent) != 0 {
+		t.Errorf("refused calls sent %d requests", len(sent))
 	}
 }
