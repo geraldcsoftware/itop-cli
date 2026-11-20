@@ -21,11 +21,14 @@ func writeTemp(t *testing.T, body string) string {
 
 func TestLoadRejectsUnsafeConfig(t *testing.T) {
 	cases := map[string]string{
-		"password key":      "url = \"https://itop.example.internal\"\nusername = \"jdoe\"\npassword = \"x\"\n",
-		"literal secret":    "url = \"https://itop.example.internal\"\nusername = \"jdoe\"\ncredential = \"hunter2\"\n",
-		"cleartext url":     "url = \"http://itop.example.internal\"\nusername = \"jdoe\"\ncredential = \"env:ITOP_PW\"\n",
-		"literal bws token": "url = \"https://itop.example.internal\"\nusername = \"jdoe\"\ncredential = \"env:ITOP_PW\"\n[bws]\naccessToken = \"hunter2\"\n",
-		"unknown auth":      "url = \"https://itop.example.internal\"\nusername = \"jdoe\"\ncredential = \"env:ITOP_PW\"\nauth = \"basic\"\n",
+		"password key":                    "url = \"https://itop.example.internal\"\nusername = \"jdoe\"\npassword = \"x\"\n",
+		"literal secret":                  "url = \"https://itop.example.internal\"\nusername = \"jdoe\"\ncredential = \"hunter2\"\n",
+		"cleartext url":                   "url = \"http://itop.example.internal\"\nusername = \"jdoe\"\ncredential = \"env:ITOP_PW\"\n",
+		"literal bws token":               "url = \"https://itop.example.internal\"\nusername = \"jdoe\"\ncredential = \"env:ITOP_PW\"\n[bws]\naccessToken = \"hunter2\"\n",
+		"username resolver":               "url = \"https://itop.example.internal\"\nusername = \"keychain:itop-cli/jdoe\"\ncredential = \"env:ITOP_PW\"\n",
+		"circular bws token":              "url = \"https://itop.example.internal\"\nusername = \"jdoe\"\ncredential = \"env:ITOP_PW\"\n[bws]\naccessToken = \"bws:abc\"\n",
+		"malformed toml quoting a secret": "url = \"https://itop.example.internal\"\nusername = \"jdoe\"\ncredential = hunter2\n",
+		"unknown auth":                    "url = \"https://itop.example.internal\"\nusername = \"jdoe\"\ncredential = \"env:ITOP_PW\"\nauth = \"basic\"\n",
 	}
 	for name, body := range cases {
 		_, err := config.Load(writeTemp(t, body))

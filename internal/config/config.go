@@ -4,6 +4,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -26,7 +27,7 @@ const (
 type Config struct {
 	// URL is the iTop base URL; always https.
 	URL string
-	// Username is a literal or a resolver URI.
+	// Username is a literal; a resolver URI is refused at load.
 	Username string
 	// Credential is the resolver URI for the secret, never a literal.
 	Credential string
@@ -79,6 +80,12 @@ func Load(path string) (Config, error) {
 	}
 	md, err := toml.DecodeFile(path, &raw)
 	if err != nil {
+		// The decoder's own text can quote the malformed value, which may be a
+		// mistyped secret, so only the position is reported.
+		var perr toml.ParseError
+		if errors.As(err, &perr) {
+			return Config{}, fmt.Errorf("%s: invalid TOML at line %d, column %d", path, perr.Position.Line, perr.Position.Col)
+		}
 		return Config{}, fmt.Errorf("loading config %s: %w", path, err)
 	}
 	for _, key := range md.Undecoded() {
@@ -124,6 +131,11 @@ func Load(path string) (Config, error) {
 	if cfg.Username == "" {
 		return Config{}, fmt.Errorf("config %s: username is required", path)
 	}
+	// The scalar resolver returns a backend's password before its username, so
+	// a keychain URI here would yield the secret as the username.
+	if credential.IsURI(cfg.Username) {
+		return Config{}, fmt.Errorf("config %s: username must be a literal, not a resolver URI", path)
+	}
 	if cfg.Credential == "" {
 		return Config{}, fmt.Errorf("config %s: credential is required", path)
 	}
@@ -132,6 +144,9 @@ func Load(path string) (Config, error) {
 	}
 	if cfg.BWSAccessToken != "" && !credential.IsURI(cfg.BWSAccessToken) {
 		return Config{}, fmt.Errorf("config %s: bws.accessToken must be a resolver URI (keychain:, env:, bw:), not a literal token", path)
+	}
+	if strings.HasPrefix(cfg.BWSAccessToken, "bws:") {
+		return Config{}, fmt.Errorf("config %s: bws.accessToken cannot be a bws: URI, which would need the token it names (use keychain:, env: or bw:)", path)
 	}
 	if cfg.Auth != "password" && cfg.Auth != "token" {
 		return Config{}, fmt.Errorf("config %s: auth must be \"password\" or \"token\"", path)
