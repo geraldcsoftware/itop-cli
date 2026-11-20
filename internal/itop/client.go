@@ -171,6 +171,12 @@ func New(cfg config.Config, user, secret string, opts ...Option) (*Client, error
 	if c.http == nil {
 		c.http = &http.Client{Timeout: cfg.Timeout}
 	}
+	// The credentials travel in the POST body, which Go re-sends on a 307 or
+	// 308 redirect. Redirects are refused on a copy so a caller's client is
+	// left untouched; the non-200 check then reports the redirect as an error.
+	hc := *c.http
+	hc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	c.http = &hc
 	return c, nil
 }
 

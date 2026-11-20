@@ -100,3 +100,19 @@ func TestClassifyErrors(t *testing.T) {
 		t.Errorf("closed listener: got %v, want ErrUnreachable", err)
 	}
 }
+
+func TestRedirectNeverFollowed(t *testing.T) {
+	hit := false
+	target := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hit = true }))
+	defer target.Close()
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL, http.StatusTemporaryRedirect)
+	}))
+	defer srv.Close()
+
+	err := newTestClient(t, srv, "password", time.Second).CheckCredentials(context.Background())
+	var e *Error
+	if hit || !errors.As(err, &e) || e.Kind != ErrAPI {
+		t.Errorf("redirect followed or not reported: hit=%v err=%v", hit, err)
+	}
+}
