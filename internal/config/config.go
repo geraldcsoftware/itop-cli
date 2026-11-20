@@ -130,6 +130,9 @@ func Load(path string) (Config, error) {
 	if !credential.IsURI(cfg.Credential) {
 		return Config{}, fmt.Errorf("config %s: credential must be a resolver URI (keychain:, env:, bw:, bws:), not a literal secret", path)
 	}
+	if cfg.BWSAccessToken != "" && !credential.IsURI(cfg.BWSAccessToken) {
+		return Config{}, fmt.Errorf("config %s: bws.accessToken must be a resolver URI (keychain:, env:, bw:), not a literal token", path)
+	}
 	if cfg.Auth != "password" && cfg.Auth != "token" {
 		return Config{}, fmt.Errorf("config %s: auth must be \"password\" or \"token\"", path)
 	}
