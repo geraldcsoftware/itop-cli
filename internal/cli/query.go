@@ -172,12 +172,22 @@ func runQuery(args []string, globals globalFlags, stdout, stderr io.Writer) int 
 	return ExitOK
 }
 
+// fieldsCachePath is the cache file for a class, or "" when there is no cache
+// directory.
 func fieldsCachePath(class string) string {
-	return filepath.Join(cache.Root(), "fields", class+".json")
+	root := cache.Root()
+	if root == "" {
+		return ""
+	}
+	return filepath.Join(root, "fields", class+".json")
 }
 
 func readFieldsCache(class string) ([]string, bool) {
-	b, err := os.ReadFile(fieldsCachePath(class))
+	path := fieldsCachePath(class)
+	if path == "" {
+		return nil, false
+	}
+	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, false
 	}
@@ -190,6 +200,9 @@ func readFieldsCache(class string) ([]string, bool) {
 
 func writeFieldsCache(class string, codes []string) error {
 	path := fieldsCachePath(class)
+	if path == "" {
+		return errors.New("no cache directory")
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
@@ -197,7 +210,21 @@ func writeFieldsCache(class string, codes []string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, b, 0o600)
+	// A private temporary file renamed into place replaces the target (or a
+	// symlink standing at its name) instead of writing through it.
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".fields-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(b); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
 }
 
 // runFields lists a class's attribute codes. iTop's REST API has no schema

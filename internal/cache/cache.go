@@ -7,13 +7,15 @@ import (
 )
 
 // Root returns the cache directory: $XDG_CACHE_HOME/itop-cli, else
-// ~/.cache/itop-cli.
+// ~/.cache/itop-cli. It returns "" when no home directory is known, and
+// callers then skip the cache: a shared fallback such as the system temporary
+// directory would let another user plant files the CLI later reads.
 func Root() string {
 	base := os.Getenv("XDG_CACHE_HOME")
 	if base == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return filepath.Join(os.TempDir(), "itop-cli")
+			return ""
 		}
 		base = filepath.Join(home, ".cache")
 	}

@@ -74,16 +74,25 @@ func Render(w io.Writer, format string, rows Rows, opts Options) error {
 	return r(w, rows, opts)
 }
 
-// renderText prints a tab-separated header and rows.
+// renderText prints a tab-separated header and rows. Control characters in a
+// value, including escape sequences, become spaces so stored data cannot drive
+// a terminal or split a row; JSON output keeps values whole.
 func renderText(w io.Writer, rows Rows, _ Options) error {
 	if len(rows.Columns) == 0 {
 		return nil
 	}
-	if _, err := fmt.Fprintln(w, strings.Join(rows.Columns, "\t")); err != nil {
+	cells := func(row []string) string {
+		out := make([]string, len(rows.Columns))
+		for i := range out {
+			out[i] = sanitize(cell(row, i))
+		}
+		return strings.Join(out, "\t")
+	}
+	if _, err := fmt.Fprintln(w, cells(rows.Columns)); err != nil {
 		return err
 	}
 	for _, row := range rows.Rows {
-		if _, err := fmt.Fprintln(w, strings.Join(row, "\t")); err != nil {
+		if _, err := fmt.Fprintln(w, cells(row)); err != nil {
 			return err
 		}
 	}
@@ -192,8 +201,9 @@ func cell(row []string, i int) string {
 	return ""
 }
 
-// sanitize collapses control characters to spaces so a newline or tab cannot
-// break the table framing. JSON output keeps the value whole.
+// sanitize collapses control characters (C0, DEL and C1, so ESC and tab and
+// newline too) to spaces, so a value cannot break row framing or inject
+// terminal escape sequences. JSON output keeps the value whole.
 func sanitize(s string) string {
 	if !strings.ContainsFunc(s, unicode.IsControl) {
 		return s
@@ -214,5 +224,5 @@ func Error(w io.Writer, format, msg string) {
 		fmt.Fprintln(w, string(doc))
 		return
 	}
-	fmt.Fprintln(w, "itop: "+msg)
+	fmt.Fprintln(w, "itop: "+sanitize(msg))
 }
