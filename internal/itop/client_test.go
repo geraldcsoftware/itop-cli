@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -64,11 +65,15 @@ func TestSecretOnlyInBodyAndRedacted(t *testing.T) {
 }
 
 func TestClassifyErrors(t *testing.T) {
+	var mu sync.Mutex
 	var reply string
 	var delay time.Duration
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(delay)
-		_, _ = w.Write([]byte(reply))
+		mu.Lock()
+		body, wait := reply, delay
+		mu.Unlock()
+		time.Sleep(wait)
+		_, _ = w.Write([]byte(body))
 	}))
 	defer srv.Close()
 	c := newTestClient(t, srv, "password", 50*time.Millisecond)
@@ -85,7 +90,9 @@ func TestClassifyErrors(t *testing.T) {
 		{"unknown attribute", `{"code":100,"message":"Unknown attribute 'bar' for class 'Change'"}`, 0, ErrSchema},
 		{"other", `{"code":100,"message":"OQL syntax error"}`, 0, ErrAPI},
 	} {
+		mu.Lock()
 		reply, delay = tc.reply, tc.delay
+		mu.Unlock()
 		var e *Error
 		if err := c.CheckCredentials(context.Background()); !errors.As(err, &e) || e.Kind != tc.want {
 			t.Errorf("%s: got %v, want kind %d", tc.name, err, tc.want)

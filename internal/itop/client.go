@@ -259,7 +259,11 @@ func (c *Client) do(ctx context.Context, op string, payload map[string]any) (*ht
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
 		cancel()
-		return nil, nil, c.fail(ErrAPI, "iTop returned HTTP %d", resp.StatusCode)
+		note := ""
+		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+			note = " (redirects are not followed)"
+		}
+		return nil, nil, c.fail(ErrAPI, "iTop returned HTTP %d%s", resp.StatusCode, note)
 	}
 	return resp, cancel, nil
 }
