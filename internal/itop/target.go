@@ -10,8 +10,9 @@ import (
 type TargetKind int
 
 const (
-	// TargetIncident is an Incident, matched by ref.
-	TargetIncident TargetKind = iota
+	// TargetIncident is an Incident, matched by ref. The kinds start at 1 so a
+	// zero Target matches none of them.
+	TargetIncident TargetKind = iota + 1
 	// TargetChange is a Change or any Change subclass, matched by ref.
 	TargetChange
 	// TargetWorkOrder is a WorkOrder, matched by numeric id.
@@ -66,6 +67,9 @@ func (e *RefusedError) Error() string {
 }
 
 func withArticle(noun string) string {
+	if noun == "" {
+		return "an unresolved target"
+	}
 	if strings.ContainsRune("AEIOU", rune(noun[0])) {
 		return "an " + noun
 	}

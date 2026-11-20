@@ -21,7 +21,14 @@ func refuse(t Target, wanted string) error {
 	return &RefusedError{Ref: t.ref, ActualClass: t.class, Wanted: wanted}
 }
 
+// resolved reports whether t came from ResolveTarget rather than being a zero
+// value.
+func (t Target) resolved() bool { return t.id != "" && t.class != "" }
+
 func (c *Client) update(ctx context.Context, t Target, fields map[string]any) error {
+	if !t.resolved() {
+		return refuse(t, "resolved target")
+	}
 	_, err := c.post(ctx, "core/update", map[string]any{
 		"comment":       writeComment,
 		"class":         t.class,
@@ -53,6 +60,9 @@ func (c *Client) AppendPrivateLog(ctx context.Context, t Target, html string) er
 func (c *Client) CreateWorkOrder(ctx context.Context, change Target, wo WorkOrderInput) (string, error) {
 	if change.kind != TargetChange {
 		return "", refuse(change, "Change")
+	}
+	if !change.resolved() {
+		return "", refuse(change, "resolved target")
 	}
 	fields := map[string]any{
 		"ticket_id":   change.id,

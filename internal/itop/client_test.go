@@ -226,6 +226,16 @@ func TestWritesAreFixedPayloads(t *testing.T) {
 	if _, err := c.CreateWorkOrder(ctx, inc, WorkOrderInput{Name: "n"}); !errors.As(err, &refused) {
 		t.Errorf("work order on Incident: %v", err)
 	}
+	var zero Target
+	if err := c.SetDescription(ctx, zero, "x"); !errors.As(err, &refused) {
+		t.Errorf("description on zero Target: %v", err)
+	}
+	if err := c.AppendPrivateLog(ctx, zero, "x"); !errors.As(err, &refused) {
+		t.Errorf("log on zero Target: %v", err)
+	}
+	if _, err := c.CreateWorkOrder(ctx, zero, WorkOrderInput{Name: "n"}); !errors.As(err, &refused) {
+		t.Errorf("work order on zero Target: %v", err)
+	}
 	for _, op := range []string{"core/delete", "core/apply_stimulus"} {
 		if _, err := c.post(ctx, op, nil); err == nil {
 			t.Errorf("%s was not rejected", op)
